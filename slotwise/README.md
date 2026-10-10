@@ -55,6 +55,22 @@ Open:
 http://127.0.0.1:5000
 ```
 
+For production hosting, run the Flask application with Gunicorn instead of Flask's development server:
+
+```powershell
+gunicorn --bind 0.0.0.0:$env:PORT "app:create_app()"
+```
+
+Configure these environment variables on the hosting platform:
+
+```text
+SECRET_KEY=<long-random-secret>
+SLOTWISE_DB=<persistent-path-to-slotwise.db>
+SESSION_COOKIE_SECURE=1
+```
+
+The Flask service serves both the frontend templates/static assets and the REST API. Keep the SQLite path on persistent storage, or migrate to PostgreSQL for a multi-instance production deployment.
+
 ## Authentication Demo
 
 Open `/register` to create an account or `/login` to sign in. Accounts are stored in the additive `users` SQLite table with Werkzeug password hashes and a Flask session. Authentication checks are available through `/api/auth/register`, `/api/auth/login`, `/api/auth/me`, and `/api/auth/logout`.

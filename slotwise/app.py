@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import os
 import re
 from unicodedata import category
 
@@ -24,11 +25,13 @@ class ValidationError(Exception):
 def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
     app.config.update(
-        SECRET_KEY="dev",
+        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-only-secret"),
+        DATABASE=os.environ.get("SLOTWISE_DB"),
         JSON_SORT_KEYS=False,
         DISABLE_OVERLAP_VALIDATION_FOR_DEMO=False,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "0") == "1",
     )
     if config:
         app.config.update(config)
@@ -341,7 +344,11 @@ def _overlap_exists(conn, appointment: dict) -> bool:
 
 def main() -> None:
     app = create_app()
-    app.run(debug=True)
+    app.run(
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=os.environ.get("FLASK_DEBUG", "0") == "1",
+    )
 
 
 if __name__ == "__main__":
