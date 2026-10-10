@@ -3,6 +3,7 @@ const today = new Date().toISOString().slice(0, 10);
 const state = {
   appointments: [],
   history: [],
+  services: [],
   statusFilter: "ALL",
   calendarMonth: new Date(`${today}-01T00:00:00`),
   activeScreen: "overview-screen",
@@ -14,8 +15,6 @@ const message = document.querySelector("#message");
 
 if (form) {
   setDateValue(today);
-  setTimeValue("start", "09:00");
-  setTimeValue("end", "09:30");
 }
 
 document.querySelectorAll(".icon-slot").forEach((slot) => {
@@ -33,6 +32,7 @@ document.addEventListener("click", (event) => {
   const dateOption = event.target.closest("[data-date]");
   if (dateOption) {
     setDateValue(dateOption.dataset.date);
+    loadAvailability();
     closePickers();
     return;
   }
@@ -102,7 +102,7 @@ document.addEventListener("click", (event) => {
   if (action === "close-sidebar") document.body.classList.remove("sidebar-open");
   if (action === "focus-booking") {
     showScreen("appointments-screen");
-    window.setTimeout(() => form?.customer_name.focus(), 50);
+    window.setTimeout(() => form?.patient_name.focus(), 50);
   }
 });
 
@@ -217,23 +217,73 @@ async function requestJson(url, options = {}) {
 async function loadDashboard(animateTestPilot = false) {
   const requestId = ++state.dashboardRequest;
   try {
-    const [appointmentsBody, statsBody, summaryBody, historyBody] = await Promise.all([
+    const [appointmentsBody, statsBody, summaryBody, historyBody, servicesBody] = await Promise.all([
       requestJson("/api/appointments"),
       requestJson("/api/stats"),
       requestJson("/api/database/summary"),
       requestJson("/api/testpilot/history"),
+      requestJson("/api/services"),
     ]);
     if (requestId !== state.dashboardRequest) return;
     state.appointments = appointmentsBody.appointments;
     state.history = historyBody.history;
+    state.services = servicesBody.services;
     renderStats(statsBody.stats, summaryBody.database);
     renderAppointments();
+    renderServiceOptions();
+    await loadAvailability();
     renderOverview();
     await renderTestPilot(animateTestPilot);
     renderHistory();
   } catch (error) {
     showMessage(error.message, "error");
   }
+}
+
+function renderServiceOptions() {
+  const select = document.querySelector("#service-select");
+  if (!select) return;
+  const selected = select.value || state.services[0]?.id || "";
+  select.innerHTML = `<option value="">Select appointment type</option>${state.services.map((service) => `<option value="${escapeHtml(service.id)}">${escapeHtml(service.name)} · ${service.duration_minutes} min</option>`).join("")}`;
+  select.value = selected;
+  updateServiceDuration();
+}
+
+async function loadAvailability() {
+  const dateValue = document.querySelector("#appointment-date")?.value;
+  const serviceId = document.querySelector("#service-select")?.value;
+  const select = document.querySelector("#start-time");
+  if (!select || !dateValue || !serviceId) return;
+  select.innerHTML = '<option value="">Loading available times...</option>';
+  try {
+    const body = await requestJson(`/api/availability?date=${encodeURIComponent(dateValue)}&service_id=${encodeURIComponent(serviceId)}`);
+    const available = body.slots.filter((slot) => slot.available);
+    select.innerHTML = available.length
+      ? `<option value="">Select a start time</option>${available.map((slot) => `<option value="${slot.start_time}" data-end-time="${slot.end_time}">${formatTime(slot.start_time)} – ${formatTime(slot.end_time)}</option>`).join("")}`
+      : '<option value="">No available times</option>';
+    updateAppointmentSummary();
+  } catch (error) {
+    select.innerHTML = '<option value="">Unable to load times</option>';
+    showMessage(error.message, "error");
+  }
+}
+
+function updateServiceDuration() {
+  const service = state.services.find((item) => item.id === document.querySelector("#service-select")?.value);
+  setText("service-duration", service ? `${service.duration_minutes} minute appointment` : "");
+  updateAppointmentSummary();
+}
+
+function updateAppointmentSummary() {
+  const summary = document.querySelector("#appointment-summary");
+  const select = document.querySelector("#start-time");
+  const service = state.services.find((item) => item.id === document.querySelector("#service-select")?.value);
+  const option = select?.selectedOptions[0];
+  if (!summary || !service || !option?.value) {
+    if (summary) summary.innerHTML = `<span>${icon("clock")}</span><span>Select a service and start time to see the appointment duration.</span>`;
+    return;
+  }
+  summary.innerHTML = `<span>${icon("clock")}</span><strong>${formatTime(option.value)} – ${formatTime(option.dataset.endTime)}</strong><small>${service.duration_minutes} minutes · End time calculated by SlotWise</small>`;
 }
 
 function renderStats(stats, database) {
@@ -260,7 +310,7 @@ function renderOverview() {
 }
 
 function compactAppointment(item) {
-  return `<div class="compact-item"><span class="date-tile"><strong>${formatDay(item.appointment_date)}</strong><small>${formatMonth(item.appointment_date)}</small></span><span class="compact-copy"><strong>${escapeHtml(item.customer_name)}</strong><small>${escapeHtml(item.service)} · ${item.start_time}–${item.end_time}</small></span><span class="status-badge booked">Booked</span></div>`;
+  return `<div class="compact-item"><span class="date-tile"><strong>${formatDay(item.appointment_date)}</strong><small>${formatMonth(item.appointment_date)}</small></span><span class="compact-copy"><strong>${escapeHtml(item.patient_name || item.customer_name)}</strong><small>${escapeHtml(item.service)} · ${item.start_time}–${item.end_time}</small></span><span class="status-badge booked">Booked</span></div>`;
 }
 
 function activityItem(run) {
@@ -272,7 +322,7 @@ function renderAppointments() {
   const query = document.querySelector("#appointment-search")?.value.trim().toLowerCase() || "";
   const status = state.statusFilter;
   const filtered = state.appointments.filter((item) => {
-    const matchesSearch = !query || `${item.customer_name} ${item.service}`.toLowerCase().includes(query);
+    const matchesSearch = !query || `${item.patient_name || item.customer_name} ${item.mobile_number || ""} ${item.service}`.toLowerCase().includes(query);
     return matchesSearch && (status === "ALL" || item.status === status);
   });
   const body = document.querySelector("#appointment-table-body");
@@ -284,7 +334,8 @@ function renderAppointments() {
 
 function appointmentRow(item) {
   const canCancel = item.status === "BOOKED";
-  return `<tr><td><span class="customer-cell"><span class="customer-avatar">${initials(item.customer_name)}</span><span><strong>${escapeHtml(item.customer_name)}</strong><small>#${item.id}</small></span></span></td><td>${escapeHtml(item.service)}</td><td><strong>${formatDate(item.appointment_date)}</strong><small class="table-subtext">${item.start_time}–${item.end_time}</small></td><td><span class="status-badge ${item.status.toLowerCase()}"><span class="status-dot"></span>${item.status === "BOOKED" ? "Booked" : "Cancelled"}</span></td><td class="row-actions">${canCancel ? `<button class="table-action cancel-button" data-id="${item.id}" type="button">Cancel</button>` : `<span class="muted-action">Archived</span>`}</td></tr>`;
+  const patient = item.patient_name || item.customer_name;
+  return `<tr><td><span class="customer-cell"><span class="customer-avatar">${initials(patient)}</span><span><strong>${escapeHtml(patient)}</strong><small>${escapeHtml(item.mobile_number || "Legacy contact")}</small></span></span></td><td>${escapeHtml(item.service)}</td><td><strong>${formatDate(item.appointment_date)}</strong><small class="table-subtext">${item.start_time}–${item.end_time}</small></td><td><span class="status-badge ${item.status.toLowerCase()}"><span class="status-dot"></span>${item.status === "BOOKED" ? "Booked" : "Cancelled"}</span></td><td class="row-actions">${canCancel ? `<button class="table-action cancel-button" data-id="${item.id}" type="button">Cancel</button>` : `<span class="muted-action">Archived</span>`}</td></tr>`;
 }
 
 async function renderTestPilot(animate = false) {
@@ -363,18 +414,43 @@ function wait(milliseconds) {
 
 async function bookAppointment(event) {
   event.preventDefault();
+  clearFieldErrors();
   const button = form.querySelector("button[type=submit]");
   setBusy(button, "Booking...");
   try {
     await requestJson("/api/appointments", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
     showMessage("Appointment booked successfully.");
-    form.customer_name.value = "";
+    form.patient_name.value = "";
     await loadDashboard();
   } catch (error) {
+    showFieldError(error.message);
     showMessage(error.message, "error");
   } finally {
     setBusy(button, "Book appointment", false);
   }
+}
+
+function clearFieldErrors() {
+  document.querySelectorAll(".field-error").forEach((element) => { element.textContent = ""; });
+  form?.querySelectorAll("[aria-invalid]").forEach((element) => element.removeAttribute("aria-invalid"));
+}
+
+function showFieldError(message) {
+  const mappings = [
+    ["patient_name", "error-patient-name", "patient_name"],
+    ["Patient name", "error-patient-name", "patient_name"],
+    ["mobile", "error-mobile", "mobile_number"],
+    ["email", "error-email", "email"],
+    ["service", "error-service", "service_id"],
+    ["Date", "error-date", "appointment_date"],
+    ["Start time", "error-start-time", "start_time"],
+  ];
+  const match = mappings.find(([text]) => message.toLowerCase().includes(text.toLowerCase()));
+  if (!match) return;
+  const error = document.querySelector(`#${match[1]}`);
+  const input = form?.querySelector(`[name="${match[2]}"]`);
+  if (error) error.textContent = message;
+  if (input) input.setAttribute("aria-invalid", "true");
 }
 
 async function cancelAppointment(id, button) {
@@ -507,7 +583,9 @@ function escapeHtml(value) {
 form?.addEventListener("submit", bookAppointment);
 document.querySelector("#refresh-appointments")?.addEventListener("click", loadDashboard);
 document.querySelector("#appointment-search")?.addEventListener("input", renderAppointments);
-document.querySelector("#appointment-status")?.addEventListener("change", renderAppointments);
+document.querySelector("#service-select")?.addEventListener("change", loadAvailability);
+document.querySelector("#service-select")?.addEventListener("change", updateServiceDuration);
+document.querySelector("#start-time")?.addEventListener("change", updateAppointmentSummary);
 document.querySelector("#run-testpilot")?.addEventListener("click", runTestPilot);
 document.querySelector("#run-defect-demo")?.addEventListener("click", runDefectDemo);
 document.querySelector("#logout-button")?.addEventListener("click", async () => {

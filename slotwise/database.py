@@ -62,7 +62,11 @@ def init_db(db_path: str | None = None) -> None:
             CREATE TABLE IF NOT EXISTS appointments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_name TEXT NOT NULL,
+                patient_name TEXT NOT NULL DEFAULT '',
+                mobile_number TEXT NOT NULL DEFAULT '',
+                email TEXT,
                 service TEXT NOT NULL DEFAULT 'Consultation',
+                service_id TEXT NOT NULL DEFAULT '',
                 appointment_date TEXT NOT NULL,
                 start_time TEXT NOT NULL,
                 end_time TEXT NOT NULL DEFAULT '09:30',
@@ -76,7 +80,11 @@ def init_db(db_path: str | None = None) -> None:
 
         columns = _columns(conn, "appointments")
         migrations = {
+            "patient_name": "ALTER TABLE appointments ADD COLUMN patient_name TEXT NOT NULL DEFAULT ''",
+            "mobile_number": "ALTER TABLE appointments ADD COLUMN mobile_number TEXT NOT NULL DEFAULT ''",
+            "email": "ALTER TABLE appointments ADD COLUMN email TEXT",
             "service": "ALTER TABLE appointments ADD COLUMN service TEXT NOT NULL DEFAULT 'Consultation'",
+            "service_id": "ALTER TABLE appointments ADD COLUMN service_id TEXT NOT NULL DEFAULT ''",
             "end_time": "ALTER TABLE appointments ADD COLUMN end_time TEXT NOT NULL DEFAULT '09:30'",
             "created_at": "ALTER TABLE appointments ADD COLUMN created_at TEXT",
             "updated_at": "ALTER TABLE appointments ADD COLUMN updated_at TEXT",
@@ -87,6 +95,8 @@ def init_db(db_path: str | None = None) -> None:
                 conn.execute(sql)
         conn.execute("UPDATE appointments SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP)")
         conn.execute("UPDATE appointments SET updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)")
+        conn.execute("UPDATE appointments SET patient_name = customer_name WHERE patient_name = ''")
+        conn.execute("UPDATE appointments SET service_id = 'legacy' WHERE service_id = ''")
 
         conn.execute(
             """

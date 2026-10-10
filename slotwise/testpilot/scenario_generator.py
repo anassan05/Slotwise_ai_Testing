@@ -25,11 +25,12 @@ def past_date(days: int = 1) -> str:
 
 def valid_payload(**overrides) -> dict:
     payload = {
-        "customer_name": "Avery Morgan",
-        "service": "Strategy Session",
+        "patient_name": "Avery Morgan",
+        "mobile_number": "9876543210",
+        "email": "avery@example.com",
+        "service_id": "general_consultation",
         "appointment_date": future_date(),
         "start_time": "10:00",
-        "end_time": "10:30",
     }
     payload.update(overrides)
     return payload
@@ -78,6 +79,30 @@ def generate_scenarios() -> list[Scenario]:
             "authentication_error",
         ),
         Scenario(
+            "service_duration_calculated",
+            "Service duration is server-controlled",
+            "The selected service determines the end time; browser-supplied end times are ignored.",
+            [{"method": "POST", "path": "/api/appointments", "json": valid_payload(service_id="specialist_consultation", start_time="09:00", end_time="23:59")}],
+            201,
+            "created",
+        ),
+        Scenario(
+            "unknown_service_rejected",
+            "Unknown service rejected",
+            "Only services from the backend clinic configuration can be booked.",
+            [{"method": "POST", "path": "/api/appointments", "json": valid_payload(service_id="unknown_service"), "expect_error_contains": "valid appointment service"}],
+            400,
+            "validation_error",
+        ),
+        Scenario(
+            "mobile_required",
+            "Patient mobile number required",
+            "A patient booking must include a valid Indian mobile number.",
+            [{"method": "POST", "path": "/api/appointments", "json": valid_payload(mobile_number=""), "expect_error_contains": "mobile_number"}],
+            400,
+            "validation_error",
+        ),
+        Scenario(
             "booking_success",
             "Successful appointment booking",
             "A complete future appointment with a valid time range is accepted.",
@@ -93,7 +118,7 @@ def generate_scenarios() -> list[Scenario]:
                 {
                     "method": "POST",
                     "path": "/api/appointments",
-                    "json": valid_payload(customer_name=""),
+                    "json": valid_payload(patient_name=""),
                     "expect_error_contains": "Missing required",
                 }
             ],
@@ -138,8 +163,8 @@ def generate_scenarios() -> list[Scenario]:
                 {
                     "method": "POST",
                     "path": "/api/appointments",
-                    "json": valid_payload(start_time="11:00", end_time="11:00"),
-                    "expect_error_contains": "after start",
+                    "json": valid_payload(start_time="11:07"),
+                    "expect_error_contains": "increments",
                 }
             ],
             400,
@@ -150,11 +175,11 @@ def generate_scenarios() -> list[Scenario]:
             "Overlapping appointment rejection",
             "Active appointment times cannot overlap on the same date.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="13:00", end_time="14:00")},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(service_id="specialist_consultation", start_time="13:00")},
                 {
                     "method": "POST",
                     "path": "/api/appointments",
-                    "json": valid_payload(customer_name="Jordan Lee", start_time="13:30", end_time="14:30"),
+                    "json": valid_payload(patient_name="Jordan Lee", start_time="13:15"),
                     "expect_error_contains": "overlaps",
                 },
             ],
@@ -166,8 +191,8 @@ def generate_scenarios() -> list[Scenario]:
             "Non-overlapping appointments allowed",
             "Adjacent or separate appointments on the same day are allowed.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="15:00", end_time="15:30")},
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(customer_name="Riley Chen", start_time="15:30", end_time="16:00")},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(service_id="specialist_consultation", start_time="15:00")},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(patient_name="Riley Chen", start_time="15:30")},
             ],
             201,
             "created",
@@ -177,9 +202,9 @@ def generate_scenarios() -> list[Scenario]:
             "Booking a cancelled slot again",
             "Cancelled appointments release their time slot for a later booking.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="16:00", end_time="16:30"), "save_as": "booking"},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(service_id="specialist_consultation", start_time="16:00"), "save_as": "booking"},
                 {"method": "POST", "path": "/api/appointments/{booking.id}/cancel"},
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(customer_name="Sam Rivera", start_time="16:00", end_time="16:30")},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(patient_name="Sam Rivera", start_time="16:00")},
             ],
             201,
             "created",
@@ -189,7 +214,7 @@ def generate_scenarios() -> list[Scenario]:
             "Successful cancellation",
             "A booked appointment can be cancelled once.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="17:00", end_time="17:30"), "save_as": "booking"},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="16:30"), "save_as": "booking"},
                 {"method": "POST", "path": "/api/appointments/{booking.id}/cancel"},
             ],
             200,
@@ -200,7 +225,7 @@ def generate_scenarios() -> list[Scenario]:
             "Invalid or repeated cancellation",
             "A cancelled appointment cannot be cancelled again.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="18:00", end_time="18:30"), "save_as": "booking"},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="16:00"), "save_as": "booking"},
                 {"method": "POST", "path": "/api/appointments/{booking.id}/cancel"},
                 {"method": "POST", "path": "/api/appointments/{booking.id}/cancel"},
             ],
@@ -212,7 +237,7 @@ def generate_scenarios() -> list[Scenario]:
             "Data persistence",
             "Created appointments are returned by the list endpoint from SQLite.",
             [
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="19:00", end_time="19:30"), "save_as": "booking"},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="15:00"), "save_as": "booking"},
                 {"method": "GET", "path": "/api/appointments", "assert_contains_saved": "booking"},
             ],
             200,
@@ -224,7 +249,7 @@ def generate_scenarios() -> list[Scenario]:
             "Validation failures must not insert appointment rows.",
             [
                 {"method": "GET", "path": "/api/appointments", "save_count_as": "before", "save_db_count_as": "before_db"},
-                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="20:00", end_time="19:00")},
+                {"method": "POST", "path": "/api/appointments", "json": valid_payload(start_time="16:07")},
                 {
                     "method": "GET",
                     "path": "/api/appointments",

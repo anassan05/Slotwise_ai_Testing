@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 import os
 import re
 from unicodedata import category
@@ -8,6 +8,7 @@ from unicodedata import category
 from flask import Flask, jsonify, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from clinic_config import CLINIC_CLOSE, CLINIC_OPEN, SERVICE_BY_ID, SERVICE_BY_NAME, SERVICES, SLOT_INTERVAL_MINUTES
 from database import ACTIVE_STATUSES, get_connection, init_db, row_to_dict, transaction
 
 
@@ -128,6 +129,52 @@ def create_app(config: dict | None = None) -> Flask:
             ).fetchall()
         return jsonify({"ok": True, "appointments": [row_to_dict(row) for row in rows]})
 
+    @app.get("/api/services")
+    def list_services():
+        return jsonify(
+            {
+                "ok": True,
+                "services": [
+                    {"id": service.id, "name": service.name, "duration_minutes": service.duration_minutes}
+                    for service in SERVICES
+                ],
+            }
+        )
+
+    @app.get("/api/availability")
+    def availability():
+        appointment_date = request.args.get("date", "")
+        service_id = request.args.get("service_id", "")
+        service = SERVICE_BY_ID.get(service_id)
+        if not service:
+            raise ValidationError("Select a valid appointment service.")
+        parsed_date = _parse_date(appointment_date)
+        _validate_appointment_date(parsed_date)
+        with get_connection(app.config.get("DATABASE")) as conn:
+            booked = conn.execute(
+                """
+                SELECT start_time, end_time
+                FROM appointments
+                WHERE appointment_date = ? AND status IN (?)
+                """,
+                (parsed_date.isoformat(), ACTIVE_STATUSES[0]),
+            ).fetchall()
+        slots = []
+        for start in _slot_starts(parsed_date, service.duration_minutes):
+            end = datetime.combine(parsed_date, start) + timedelta(minutes=service.duration_minutes)
+            slots.append(
+                {
+                    "start_time": start.strftime(TIME_FORMAT),
+                    "end_time": end.strftime(TIME_FORMAT),
+                    "available": not any(
+                        start.strftime(TIME_FORMAT) < row["end_time"]
+                        and end.strftime(TIME_FORMAT) > row["start_time"]
+                        for row in booked
+                    ),
+                }
+            )
+        return jsonify({"ok": True, "date": parsed_date.isoformat(), "service": service.id, "slots": slots})
+
     @app.post("/api/appointments")
     def create_appointment():
         payload = request.get_json(silent=True) or {}
@@ -142,12 +189,17 @@ def create_app(config: dict | None = None) -> Flask:
             cursor = conn.execute(
                 """
                 INSERT INTO appointments
-                    (customer_name, service, appointment_date, start_time, end_time, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'BOOKED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    (customer_name, patient_name, mobile_number, email, service, service_id,
+                     appointment_date, start_time, end_time, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'BOOKED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
-                    appointment["customer_name"],
+                    appointment["patient_name"],
+                    appointment["patient_name"],
+                    appointment["mobile_number"],
+                    appointment["email"],
                     appointment["service"],
+                    appointment["service_id"],
                     appointment["appointment_date"],
                     appointment["start_time"],
                     appointment["end_time"],
@@ -256,44 +308,103 @@ def _demo_overlap_disabled(app: Flask) -> bool:
 
 
 def validate_appointment_payload(payload: dict) -> dict:
-    required = ("customer_name", "service", "appointment_date", "start_time", "end_time")
-    missing = [field for field in required if not str(payload.get(field, "")).strip()]
+    patient_name_value = payload.get("patient_name") or payload.get("customer_name")
+    service_id = str(payload.get("service_id", "")).strip()
+    if not service_id and str(payload.get("service", "")).strip().casefold() == "consultation":
+        service_id = "general_consultation"
+    required = {
+        "patient_name": patient_name_value,
+        "mobile_number": payload.get("mobile_number"),
+        "service_id": service_id,
+        "appointment_date": payload.get("appointment_date"),
+        "start_time": payload.get("start_time"),
+    }
+    missing = [field for field, value in required.items() if not str(value or "").strip()]
     if missing:
         raise ValidationError(f"Missing required field(s): {', '.join(missing)}.")
 
-    try:
-        appointment_date = datetime.strptime(str(payload["appointment_date"]), DATE_FORMAT).date()
-    except ValueError as exc:
-        raise ValidationError("Date must use YYYY-MM-DD format.") from exc
-    if appointment_date.isoformat() != str(payload["appointment_date"]):
-        raise ValidationError("Date must use YYYY-MM-DD format.")
+    appointment_date = _parse_date(str(payload["appointment_date"]))
+    _validate_appointment_date(appointment_date)
+    service = SERVICE_BY_ID.get(service_id)
+    if not service:
+        raise ValidationError("Select a valid appointment service.")
 
     try:
         start_time = datetime.strptime(str(payload["start_time"]), TIME_FORMAT).time()
-        end_time = datetime.strptime(str(payload["end_time"]), TIME_FORMAT).time()
     except ValueError as exc:
-        raise ValidationError("Times must use HH:MM 24-hour format.") from exc
-    if (
-        start_time.strftime(TIME_FORMAT) != str(payload["start_time"])
-        or end_time.strftime(TIME_FORMAT) != str(payload["end_time"])
-    ):
+        raise ValidationError("Start time must use HH:MM 24-hour format.") from exc
+    if start_time.strftime(TIME_FORMAT) != str(payload["start_time"]):
         raise ValidationError("Times must use HH:MM 24-hour format.")
+    if start_time.minute % SLOT_INTERVAL_MINUTES:
+        raise ValidationError(f"Start time must be in {SLOT_INTERVAL_MINUTES}-minute increments.")
+    end_datetime = datetime.combine(appointment_date, start_time) + timedelta(minutes=service.duration_minutes)
+    end_time = end_datetime.time()
+    if start_time < CLINIC_OPEN or end_time > CLINIC_CLOSE:
+        raise ValidationError("This appointment falls outside clinic hours (9:00 AM to 5:00 PM).")
+    if appointment_date == date.today() and start_time <= datetime.now().time().replace(second=0, microsecond=0):
+        raise ValidationError("Select a future appointment time.")
 
-    if appointment_date < date.today():
-        raise ValidationError("Cannot book appointments in the past.")
-    if end_time <= start_time:
-        raise ValidationError("End time must be after start time.")
-
-    customer_name = _validate_text_field("Customer name", payload["customer_name"], min_length=2, max_length=80)
-    service = _validate_text_field("Service", payload["service"], min_length=2, max_length=80)
+    patient_name = _validate_text_field("Patient name", patient_name_value, min_length=2, max_length=80)
+    mobile_number = _normalize_mobile(payload["mobile_number"])
+    email = _normalize_email(payload.get("email"))
 
     return {
-        "customer_name": customer_name,
-        "service": service,
+        "patient_name": patient_name,
+        "mobile_number": mobile_number,
+        "email": email,
+        "service": service.name,
+        "service_id": service.id,
         "appointment_date": appointment_date.isoformat(),
         "start_time": start_time.strftime(TIME_FORMAT),
         "end_time": end_time.strftime(TIME_FORMAT),
     }
+
+
+def _parse_date(value: str) -> date:
+    try:
+        parsed = datetime.strptime(value, DATE_FORMAT).date()
+    except ValueError as exc:
+        raise ValidationError("Date must use YYYY-MM-DD format.") from exc
+    if parsed.isoformat() != value:
+        raise ValidationError("Date must use YYYY-MM-DD format.")
+    return parsed
+
+
+def _validate_appointment_date(appointment_date: date) -> None:
+    if appointment_date < date.today():
+        raise ValidationError("Cannot book appointments in the past.")
+
+
+def _normalize_mobile(value: object) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    if digits.startswith("91") and len(digits) == 12:
+        digits = digits[2:]
+    elif digits.startswith("0") and len(digits) == 11:
+        digits = digits[1:]
+    if len(digits) != 10 or digits[0] not in "6789":
+        raise ValidationError("Enter a valid 10-digit Indian mobile number.")
+    return f"+91{digits}"
+
+
+def _normalize_email(value: object) -> str | None:
+    email = str(value or "").strip().lower()
+    if not email:
+        return None
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise ValidationError("Enter a valid email address.")
+    return email
+
+
+def _slot_starts(appointment_date: date, duration_minutes: int) -> list[time]:
+    start = datetime.combine(appointment_date, CLINIC_OPEN)
+    close = datetime.combine(appointment_date, CLINIC_CLOSE)
+    current = start
+    starts = []
+    while current + timedelta(minutes=duration_minutes) <= close:
+        if appointment_date != date.today() or current.time() > datetime.now().time().replace(second=0, microsecond=0):
+            starts.append(current.time())
+        current += timedelta(minutes=SLOT_INTERVAL_MINUTES)
+    return starts
 
 
 def validate_auth_payload(payload: dict) -> tuple[str, str, str]:

@@ -22,7 +22,7 @@
 
 * { box-sizing: border-box; }
 html { background: var(--bg); }
-body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.45; }
+body { margin: 0; min-height: 100vh; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.45; }
 button, input, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
@@ -181,6 +181,7 @@ body.sidebar-collapsed .sidebar-footer { align-items: center; }
 .secure-tag .icon, .database-pill .icon, .rule-badge .icon { width: 12px; }
 label { display: grid; gap: 6px; }
 label > span { color: var(--muted-bright); font-size: 11px; font-weight: 600; }
+label > span em { color: #687285; font-size: 10px; font-style: normal; font-weight: 500; }
 input, select { width: 100%; min-height: 38px; padding: 0 11px; border: 1px solid var(--line-bright); border-radius: 7px; color: var(--ink); background: #0c0f15; font-size: 12px; }
 input::placeholder { color: #596274; }
 input:hover, select:hover { border-color: #4a5364; }
@@ -229,6 +230,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover, input[type="time"]:
 .select-menu button:hover { color: #fff; background: rgba(124,109,242,.15); }
 .form-row { display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; }
 .form-hint { color: #687285; font-size: 10px; }
+.field-hint { color: #687285; font-size: 10px; font-weight: 400; }
+.field-error { display: block; min-height: 0; color: var(--red); font-size: 10px; font-weight: 600; }
+.field-error:empty { display: none; }
+.appointment-summary { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 9px 11px; border: 1px solid rgba(124,109,242,.25); border-radius: 8px; color: var(--indigo-bright); background: rgba(124,109,242,.08); font-size: 11px; }
+.appointment-summary .icon { width: 16px; }
+.appointment-summary strong { color: var(--ink); font-size: 12px; }
+.appointment-summary small { margin-left: auto; color: var(--muted); font-size: 10px; text-align: right; }
 .table-card { min-width: 0; }
 .table-toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
 .search-field { position: relative; flex: 1; }
@@ -367,6 +375,20 @@ code { padding: 2px 5px; border-radius: 4px; color: var(--muted-bright); backgro
   .appointment-layout { grid-template-columns: 1fr; }
   .booking-card { order: 0; }
   .table-card { order: 1; }
+  .data-table { min-width: 0; table-layout: fixed; }
+  .data-table th, .data-table td { padding-left: 5px; padding-right: 5px; overflow-wrap: anywhere; }
+  .data-table th { font-size: 8px; }
+  .data-table td { font-size: 10px; }
+  .data-table th:nth-child(1), .data-table td:nth-child(1) { width: 29%; }
+  .data-table th:nth-child(2), .data-table td:nth-child(2) { width: 19%; }
+  .data-table th:nth-child(3), .data-table td:nth-child(3) { width: 29%; }
+  .data-table th:nth-child(4), .data-table td:nth-child(4) { width: 17%; }
+  .data-table th:nth-child(5), .data-table td:nth-child(5) { width: 6%; }
+  .customer-cell { gap: 5px; }
+  .customer-avatar { width: 24px; height: 24px; font-size: 9px; }
+  .customer-cell strong { font-size: 10px; }
+  .customer-cell small, .table-subtext { font-size: 9px; }
+  .table-action { padding: 4px; font-size: 9px; }
 }
 @media (max-width: 560px) {
   h1 { font-size: 25px; }
@@ -383,6 +405,8 @@ code { padding: 2px 5px; border-radius: 4px; color: var(--muted-bright); backgro
   .form-row { grid-template-columns: 1fr; }
   .test-banner { align-items: flex-start; flex-wrap: wrap; }
   .test-banner .rule-badge { margin-left: 47px; }
+  .appointment-summary { align-items: flex-start; flex-wrap: wrap; }
+  .appointment-summary small { width: 100%; margin-left: 25px; text-align: left; }
   .result-row { padding: 15px; }
   .live-test-grid { grid-template-columns: 1fr; }
   .result-compare { align-items: flex-start; flex-direction: column; gap: 8px; }
