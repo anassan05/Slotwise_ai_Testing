@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in | SlotWise</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+</head>
+<body>
+  <main class="auth-shell">
+    <section class="auth-visual"><a class="auth-brand" href="/">S <span>SlotWise</span></a><div class="visual-copy"><p>OPERATIONS CONSOLE</p><h1>Make every appointment count.</h1><span>Booking operations and quality evidence, in one calm workspace.</span></div><div class="visual-footer"><span class="status-dot"></span> SQLite workspace ready</div></section>
+    <section class="auth-panel"><div class="auth-card"><div class="auth-heading"><p class="eyebrow">Welcome back</p><h2>Sign in to SlotWise</h2><p>Access your booking operations and TestPilot reports.</p></div><form id="login-form"><label>Email address<input name="email" type="email" autocomplete="email" required placeholder="you@company.com"></label><label>Password<input name="password" type="password" autocomplete="current-password" required placeholder="Enter your password"></label><button class="auth-button" type="submit">Sign in</button><p id="auth-message" class="auth-message" role="alert"></p></form><p class="auth-switch">New to SlotWise? <a href="/register">Create an account</a></p></div></section>
+  </main>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+</body>
+</html>

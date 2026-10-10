@@ -1,0 +1,119 @@
+<!doctype html>
+{% macro icon(name) %}<span class="icon-slot" data-icon="{{ name }}"></span>{% endmacro %}
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d12">
+  <title>SlotWise | Operations Console</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="app-backdrop" aria-hidden="true"></div>
+  <div class="mobile-scrim" data-action="close-sidebar"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-row">
+      <a class="brand" href="#overview" data-screen="overview-screen" aria-label="SlotWise overview">
+        <span class="brand-mark">S</span>
+        <span class="brand-copy"><strong>SlotWise</strong><small>Operations console</small></span>
+      </a>
+      <button class="icon-button sidebar-toggle" data-action="toggle-sidebar" aria-label="Collapse sidebar" title="Collapse sidebar">{{ icon('panel') }}</button>
+    </div>
+
+    <div class="workspace-switcher">
+      <span class="workspace-avatar">AC</span>
+      <span><strong>Acme Clinic</strong><small>Production workspace</small></span>
+      {{ icon('chevron') }}
+    </div>
+
+    <nav class="primary-nav" aria-label="Main navigation">
+      <p class="nav-label">Workspace</p>
+      <button class="nav-item active" data-screen="overview-screen" type="button">{{ icon('grid') }}<span>Overview</span></button>
+      <button class="nav-item" data-screen="appointments-screen" type="button">{{ icon('calendar') }}<span>Appointments</span><span class="nav-count" id="nav-appointment-count">0</span></button>
+      <button class="nav-item" data-screen="testpilot-screen" type="button">{{ icon('pulse') }}<span>TestPilot</span><span class="nav-dot"></span></button>
+      <p class="nav-label nav-label-spaced">Insights</p>
+      <button class="nav-item" data-screen="history-screen" type="button">{{ icon('history') }}<span>Test history</span></button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="database-status"><span class="status-dot"></span><span><strong>System operational</strong><small>SQLite connected</small></span></div>
+      <div class="sidebar-meta"><span>DATABASE</span><strong id="sql-records">Loading...</strong></div>
+    </div>
+  </aside>
+
+  <main class="main-shell">
+    <header class="topbar">
+      <button class="icon-button mobile-menu" data-action="toggle-sidebar" aria-label="Open navigation">{{ icon('menu') }}</button>
+      <div class="breadcrumb"><span>Workspace</span>{{ icon('chevron-right') }}<strong id="page-kicker">Overview</strong></div>
+      <div class="topbar-actions">
+        <div class="top-date">{{ icon('calendar') }}<span id="current-date"></span></div>
+        <span class="top-status"><span class="status-dot"></span>Operational</span>
+        <div class="profile"><span class="profile-avatar">MA</span><span class="profile-copy"><strong>Mohammed</strong><small>Admin</small></span>{{ icon('chevron') }}</div>
+        <button id="logout-button" class="logout-button" type="button" title="Sign out">{{ icon('logout') }}<span>Sign out</span></button>
+      </div>
+    </header>
+
+    <div id="message" class="toast" role="status" aria-live="polite"></div>
+
+    <section id="overview-screen" class="screen active" data-title="Overview">
+      <div class="page-heading"><div><p class="eyebrow">Operations overview</p><h1>Good morning, Mohammed</h1><p class="page-subtitle">A clear view of your booking operations and quality signals.</p></div><button class="button button-primary" data-screen="appointments-screen" type="button">{{ icon('plus') }} New appointment</button></div>
+      <section class="kpi-grid" aria-label="Overview metrics">
+        <article class="kpi-card"><div class="kpi-top"><span class="kpi-label">Total bookings</span><span class="kpi-icon indigo">{{ icon('calendar') }}</span></div><strong id="overview-total">--</strong><span class="kpi-caption">All records in SQLite</span></article>
+        <article class="kpi-card"><div class="kpi-top"><span class="kpi-label">Upcoming appointments</span><span class="kpi-icon cyan">{{ icon('clock') }}</span></div><strong id="overview-upcoming">--</strong><span class="kpi-caption">Active future bookings</span></article>
+        <article class="kpi-card"><div class="kpi-top"><span class="kpi-label">Cancelled bookings</span><span class="kpi-icon amber">{{ icon('ban') }}</span></div><strong id="overview-cancelled">--</strong><span class="kpi-caption">Slots available to rebook</span></article>
+        <article class="kpi-card"><div class="kpi-top"><span class="kpi-label">Latest test pass rate</span><span class="kpi-icon green">{{ icon('check') }}</span></div><strong id="overview-pass-rate">--</strong><span class="kpi-caption" id="overview-test-caption">No test run recorded</span></article>
+      </section>
+      <div class="overview-grid">
+        <section class="surface-card upcoming-card"><div class="section-heading"><div><p class="eyebrow">Schedule</p><h2>Upcoming appointments</h2></div><button class="text-button" data-screen="appointments-screen" type="button">View all {{ icon('arrow') }}</button></div><div id="upcoming-list" class="compact-list"></div></section>
+        <section class="surface-card activity-card"><div class="section-heading"><div><p class="eyebrow">Quality signal</p><h2>Recent TestPilot activity</h2></div><button class="text-button" data-screen="testpilot-screen" type="button">Open TestPilot {{ icon('arrow') }}</button></div><div id="overview-activity" class="activity-list"></div></section>
+      </div>
+    </section>
+
+    <section id="appointments-screen" class="screen" data-title="Appointments">
+      <div class="page-heading"><div><p class="eyebrow">Booking operations</p><h1>Appointments</h1><p class="page-subtitle">Create, monitor, and manage your appointment schedule.</p></div><button class="button button-primary" data-action="focus-booking" type="button">{{ icon('plus') }} New appointment</button></div>
+      <section class="appointment-layout">
+        <form id="appointment-form" class="surface-card booking-card">
+          <div class="section-heading"><div><p class="eyebrow">Booking desk</p><h2>Create appointment</h2></div><span class="secure-tag">{{ icon('shield') }} Validated</span></div>
+          <label><span>Customer name</span><input name="customer_name" autocomplete="name" required placeholder="Avery Morgan"></label>
+          <label><span>Service</span><input name="service" required placeholder="Strategy Session"></label>
+          <div class="form-row"><label><span>Date</span><div class="picker" data-picker="date"><input id="appointment-date-display" class="picker-input" type="text" readonly placeholder="Select a date" aria-label="Select appointment date"><input name="appointment_date" id="appointment-date" type="hidden" required><button class="picker-trigger" type="button" aria-label="Open date picker">{{ icon('calendar') }}</button><div id="date-picker" class="picker-menu date-menu" hidden></div></div></label><label><span>Start time</span><div class="picker" data-picker="time" data-time-target="start"><input id="start-time-display" class="picker-input" type="text" readonly placeholder="Select time" aria-label="Select start time"><input name="start_time" id="start-time" type="hidden" required><button class="picker-trigger" type="button" aria-label="Open start time picker">{{ icon('clock') }}</button><div id="start-time-picker" class="picker-menu time-menu" hidden></div></div></label></div>
+          <label><span>End time</span><div class="picker" data-picker="time" data-time-target="end"><input id="end-time-display" class="picker-input" type="text" readonly placeholder="Select time" aria-label="Select end time"><input name="end_time" id="end-time" type="hidden" required><button class="picker-trigger" type="button" aria-label="Open end time picker">{{ icon('clock') }}</button><div id="end-time-picker" class="picker-menu time-menu" hidden></div></div></label>
+          <p class="form-hint">Overlapping active appointments are blocked automatically.</p>
+          <button class="button button-primary button-wide" type="submit">{{ icon('check') }} Book appointment</button>
+        </form>
+        <section class="surface-card table-card"><div class="section-heading"><div><p class="eyebrow">Live records</p><h2>Appointment history</h2></div><button class="icon-button" id="refresh-appointments" type="button" aria-label="Refresh appointments" title="Refresh appointments">{{ icon('refresh') }}</button></div><div class="table-toolbar"><div class="search-field">{{ icon('search') }}<input id="appointment-search" type="search" placeholder="Search customers or services" aria-label="Search appointments"></div><div class="select-control"><button id="appointment-status-button" class="select-button" type="button" aria-haspopup="listbox" aria-expanded="false">All statuses{{ icon('chevron') }}</button><div id="appointment-status-menu" class="select-menu" role="listbox" hidden><button type="button" data-status="ALL" role="option">All statuses</button><button type="button" data-status="BOOKED" role="option">Booked</button><button type="button" data-status="CANCELLED" role="option">Cancelled</button></div></div></div><div class="data-table-wrap"><table class="data-table"><thead><tr><th>Customer</th><th>Service</th><th>Date &amp; time</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody id="appointment-table-body"></tbody></table></div><div id="appointment-empty" class="empty-state hidden"></div></section>
+      </section>
+    </section>
+
+    <section id="testpilot-screen" class="screen" data-title="TestPilot">
+      <div class="page-heading"><div><p class="eyebrow">Automated quality</p><h1>TestPilot</h1><p class="page-subtitle">Rule-based tests that turn business requirements into executable evidence.</p></div><div class="heading-actions"><button id="run-defect-demo" class="button button-secondary" type="button">{{ icon('bug') }} Defect demo</button><button id="run-testpilot" class="button button-primary" type="button">{{ icon('play') }} Run tests</button></div></div>
+      <section class="test-banner"><div class="test-banner-icon">{{ icon('pulse') }}</div><div><strong>Quality control center</strong><p>TestPilot runs real scenarios against isolated Flask and SQLite instances, then stores every result for review.</p></div><span class="rule-badge">{{ icon('lock') }} Rule-based engine</span></section>
+      <section class="kpi-grid test-kpis"><article class="kpi-card"><span class="kpi-label">Tests executed</span><strong id="qa-total">--</strong><span class="kpi-caption">Latest run</span></article><article class="kpi-card"><span class="kpi-label">Passed</span><strong class="positive-number" id="qa-passed">--</strong><span class="kpi-caption">Expected behavior confirmed</span></article><article class="kpi-card"><span class="kpi-label">Failed</span><strong class="negative-number" id="qa-failed">--</strong><span class="kpi-caption">Requires investigation</span></article><article class="kpi-card"><span class="kpi-label">Pass percentage</span><strong id="qa-pass-rate">--</strong><span class="kpi-caption">Calculated from actual output</span></article></section>
+      <section class="surface-card results-card"><div class="section-heading"><div><p class="eyebrow">Latest execution</p><h2>Test results</h2></div><span id="testpilot-summary" class="run-status">No run yet</span></div><div id="testpilot-latest" class="test-results"></div></section>
+    </section>
+
+    <section id="history-screen" class="screen" data-title="Test history">
+      <div class="page-heading"><div><p class="eyebrow">Audit trail</p><h1>Test history</h1><p class="page-subtitle">Review every persisted TestPilot execution and its outcome.</p></div><button class="button button-primary" data-screen="testpilot-screen" type="button">{{ icon('play') }} Run new tests</button></div>
+      <section class="surface-card history-card"><div class="section-heading"><div><p class="eyebrow">Stored in SQLite</p><h2>Previous test runs</h2></div><span class="database-pill">{{ icon('database') }} test_runs</span></div><div id="testpilot-history" class="history-list"></div></section>
+    </section>
+  </main>
+
+  <div id="confirm-dialog" class="modal-backdrop" role="presentation" hidden>
+    <section class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-copy">
+      <span class="confirm-icon">{{ icon('ban') }}</span>
+      <h2 id="confirm-title">Confirm action</h2>
+      <p id="confirm-copy"></p>
+      <div class="confirm-actions"><button id="confirm-cancel" class="button button-secondary" type="button">Keep appointment</button><button id="confirm-action" class="button button-danger" type="button">Cancel appointment</button></div>
+    </section>
+  </div>
+
+  <script>
+    function icon(name) {
+      const paths = { grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', calendar: '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', pulse: '<path d="M3 12h4l2-7 4 14 2-7h6"/>', history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>', panel: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>', chevron: '<path d="m9 6 6 6-6 6"/>', 'chevron-right': '<path d="m9 6 6 6-6 6"/>', 'chevron-left': '<path d="m15 6-6 6 6 6"/>', x: '<path d="m6 6 12 12M18 6 6 18"/>', logout: '<path d="M10 17l5-5-5-5M15 12H3M21 3v18"/>', menu: '<path d="M4 6h16M4 12h16M4 18h16"/>', plus: '<path d="M12 5v14M5 12h14"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', ban: '<circle cx="12" cy="12" r="9"/><path d="m6 6 12 12"/>', check: '<path d="m5 12 4 4L19 6"/>', arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>', shield: '<path d="M12 3 20 6v5c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/>', refresh: '<path d="M20 11a8 8 0 0 0-14-4L3 10M3 5v5h5M4 13a8 8 0 0 0 14 4l3-3m0 5v-5h-5"/>', search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>', bug: '<path d="M9 9h6v7a3 3 0 0 1-6 0V9ZM8 12H3M21 12h-5M8 8 5 5M16 8l3-3M8 16l-3 3M16 16l3 3M12 5V3"/>', play: '<path d="m8 5 11 7-11 7V5Z"/>', lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>', database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 2 3.6 3 8 3s8-1 8-3V5M4 12v7c0 2 3.6 3 8 3s8-1 8-3v-7"/>' };
+      return `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.grid}</svg>`;
+    }
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
