@@ -4,6 +4,7 @@ const state = {
   appointments: [],
   history: [],
   services: [],
+  doctors: [],
   statusFilter: "ALL",
   calendarMonth: new Date(`${today}-01T00:00:00`),
   activeScreen: "overview-screen",
@@ -217,20 +218,23 @@ async function requestJson(url, options = {}) {
 async function loadDashboard(animateTestPilot = false) {
   const requestId = ++state.dashboardRequest;
   try {
-    const [appointmentsBody, statsBody, summaryBody, historyBody, servicesBody] = await Promise.all([
+    const [appointmentsBody, statsBody, summaryBody, historyBody, servicesBody, doctorsBody] = await Promise.all([
       requestJson("/api/appointments"),
       requestJson("/api/stats"),
       requestJson("/api/database/summary"),
       requestJson("/api/testpilot/history"),
       requestJson("/api/services"),
+      requestJson("/api/doctors"),
     ]);
     if (requestId !== state.dashboardRequest) return;
     state.appointments = appointmentsBody.appointments;
     state.history = historyBody.history;
     state.services = servicesBody.services;
+    state.doctors = doctorsBody.doctors;
     renderStats(statsBody.stats, summaryBody.database);
     renderAppointments();
     renderServiceOptions();
+    renderDoctorOptions();
     await loadAvailability();
     renderOverview();
     await renderTestPilot(animateTestPilot);
@@ -249,14 +253,27 @@ function renderServiceOptions() {
   updateServiceDuration();
 }
 
+function renderDoctorOptions() {
+  const select = document.querySelector("#doctor-select");
+  if (!select) return;
+  const selected = select.value || state.doctors[0]?.id || "";
+  select.innerHTML = `<option value="">Select doctor</option>${state.doctors.map((doctor) => `<option value="${escapeHtml(doctor.id)}">${escapeHtml(doctor.name)} · ${escapeHtml(doctor.specialty)}</option>`).join("")}`;
+  select.value = selected;
+}
+
 async function loadAvailability() {
   const dateValue = document.querySelector("#appointment-date")?.value;
   const serviceId = document.querySelector("#service-select")?.value;
+  const doctorId = document.querySelector("#doctor-select")?.value;
   const select = document.querySelector("#start-time");
-  if (!select || !dateValue || !serviceId) return;
+  if (!select || !dateValue || !serviceId || !doctorId) {
+    if (select) select.innerHTML = '<option value="">Select doctor, date and service first</option>';
+    updateAppointmentSummary();
+    return;
+  }
   select.innerHTML = '<option value="">Loading available times...</option>';
   try {
-    const body = await requestJson(`/api/availability?date=${encodeURIComponent(dateValue)}&service_id=${encodeURIComponent(serviceId)}`);
+    const body = await requestJson(`/api/availability?date=${encodeURIComponent(dateValue)}&service_id=${encodeURIComponent(serviceId)}&doctor_id=${encodeURIComponent(doctorId)}`);
     const available = body.slots.filter((slot) => slot.available);
     select.innerHTML = available.length
       ? `<option value="">Select a start time</option>${available.map((slot) => `<option value="${slot.start_time}" data-end-time="${slot.end_time}">${formatTime(slot.start_time)} – ${formatTime(slot.end_time)}</option>`).join("")}`
@@ -266,6 +283,15 @@ async function loadAvailability() {
     select.innerHTML = '<option value="">Unable to load times</option>';
     showMessage(error.message, "error");
   }
+}
+
+async function handleServiceChange() {
+  updateServiceDuration();
+  await loadAvailability();
+}
+
+async function handleDoctorChange() {
+  await loadAvailability();
 }
 
 function updateServiceDuration() {
@@ -310,7 +336,7 @@ function renderOverview() {
 }
 
 function compactAppointment(item) {
-  return `<div class="compact-item"><span class="date-tile"><strong>${formatDay(item.appointment_date)}</strong><small>${formatMonth(item.appointment_date)}</small></span><span class="compact-copy"><strong>${escapeHtml(item.patient_name || item.customer_name)}</strong><small>${escapeHtml(item.service)} · ${item.start_time}–${item.end_time}</small></span><span class="status-badge booked">Booked</span></div>`;
+  return `<div class="compact-item"><span class="date-tile"><strong>${formatDay(item.appointment_date)}</strong><small>${formatMonth(item.appointment_date)}</small></span><span class="compact-copy"><strong>${escapeHtml(item.patient_name || item.customer_name)}</strong><small>${escapeHtml(item.doctor_name || "Unassigned doctor")} · ${escapeHtml(item.service)} · ${item.start_time}–${item.end_time}</small></span><span class="status-badge booked">Booked</span></div>`;
 }
 
 function activityItem(run) {
@@ -335,7 +361,7 @@ function renderAppointments() {
 function appointmentRow(item) {
   const canCancel = item.status === "BOOKED";
   const patient = item.patient_name || item.customer_name;
-  return `<tr><td><span class="customer-cell"><span class="customer-avatar">${initials(patient)}</span><span><strong>${escapeHtml(patient)}</strong><small>${escapeHtml(item.mobile_number || "Legacy contact")}</small></span></span></td><td>${escapeHtml(item.service)}</td><td><strong>${formatDate(item.appointment_date)}</strong><small class="table-subtext">${item.start_time}–${item.end_time}</small></td><td><span class="status-badge ${item.status.toLowerCase()}"><span class="status-dot"></span>${item.status === "BOOKED" ? "Booked" : "Cancelled"}</span></td><td class="row-actions">${canCancel ? `<button class="table-action cancel-button" data-id="${item.id}" type="button">Cancel</button>` : `<span class="muted-action">Archived</span>`}</td></tr>`;
+  return `<tr><td><span class="customer-cell"><span class="customer-avatar">${initials(patient)}</span><span><strong>${escapeHtml(patient)}</strong><small>${escapeHtml(item.mobile_number || "Legacy contact")}</small></span></span></td><td>${escapeHtml(item.service)}<small class="table-subtext">${escapeHtml(item.doctor_name || "Unassigned doctor")}</small></td><td><strong>${formatDate(item.appointment_date)}</strong><small class="table-subtext">${item.start_time}–${item.end_time}</small></td><td><span class="status-badge ${item.status.toLowerCase()}"><span class="status-dot"></span>${item.status === "BOOKED" ? "Booked" : "Cancelled"}</span></td><td class="row-actions">${canCancel ? `<button class="table-action cancel-button" data-id="${item.id}" type="button">Cancel</button>` : `<span class="muted-action">Archived</span>`}</td></tr>`;
 }
 
 async function renderTestPilot(animate = false) {
@@ -441,6 +467,7 @@ function showFieldError(message) {
     ["Patient name", "error-patient-name", "patient_name"],
     ["mobile", "error-mobile", "mobile_number"],
     ["email", "error-email", "email"],
+    ["doctor", "error-doctor", "doctor_id"],
     ["service", "error-service", "service_id"],
     ["Date", "error-date", "appointment_date"],
     ["Start time", "error-start-time", "start_time"],
@@ -583,8 +610,8 @@ function escapeHtml(value) {
 form?.addEventListener("submit", bookAppointment);
 document.querySelector("#refresh-appointments")?.addEventListener("click", loadDashboard);
 document.querySelector("#appointment-search")?.addEventListener("input", renderAppointments);
-document.querySelector("#service-select")?.addEventListener("change", loadAvailability);
-document.querySelector("#service-select")?.addEventListener("change", updateServiceDuration);
+document.querySelector("#service-select")?.addEventListener("change", handleServiceChange);
+document.querySelector("#doctor-select")?.addEventListener("change", handleDoctorChange);
 document.querySelector("#start-time")?.addEventListener("change", updateAppointmentSummary);
 document.querySelector("#run-testpilot")?.addEventListener("click", runTestPilot);
 document.querySelector("#run-defect-demo")?.addEventListener("click", runDefectDemo);

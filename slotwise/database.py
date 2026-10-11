@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from contextlib import contextmanager
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -37,15 +38,24 @@ def get_connection(db_path: str | None = None) -> sqlite3.Connection:
 @contextmanager
 def transaction(db_path: str | None = None, immediate: bool = False):
     conn = get_connection(db_path)
+    began = False
     try:
         conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+        began = True
         yield conn
         conn.commit()
     except Exception:
-        conn.rollback()
+        if began:
+            with suppress(sqlite3.Error):
+                conn.rollback()
         raise
     finally:
         conn.close()
+
+
+def is_lock_error(error: sqlite3.Error) -> bool:
+    message = str(error).lower()
+    return "locked" in message or "busy" in message
 
 
 def _columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
@@ -65,6 +75,8 @@ def init_db(db_path: str | None = None) -> None:
                 patient_name TEXT NOT NULL DEFAULT '',
                 mobile_number TEXT NOT NULL DEFAULT '',
                 email TEXT,
+                doctor_id TEXT NOT NULL DEFAULT '',
+                doctor_name TEXT NOT NULL DEFAULT '',
                 service TEXT NOT NULL DEFAULT 'Consultation',
                 service_id TEXT NOT NULL DEFAULT '',
                 appointment_date TEXT NOT NULL,
@@ -83,6 +95,8 @@ def init_db(db_path: str | None = None) -> None:
             "patient_name": "ALTER TABLE appointments ADD COLUMN patient_name TEXT NOT NULL DEFAULT ''",
             "mobile_number": "ALTER TABLE appointments ADD COLUMN mobile_number TEXT NOT NULL DEFAULT ''",
             "email": "ALTER TABLE appointments ADD COLUMN email TEXT",
+            "doctor_id": "ALTER TABLE appointments ADD COLUMN doctor_id TEXT NOT NULL DEFAULT ''",
+            "doctor_name": "ALTER TABLE appointments ADD COLUMN doctor_name TEXT NOT NULL DEFAULT ''",
             "service": "ALTER TABLE appointments ADD COLUMN service TEXT NOT NULL DEFAULT 'Consultation'",
             "service_id": "ALTER TABLE appointments ADD COLUMN service_id TEXT NOT NULL DEFAULT ''",
             "end_time": "ALTER TABLE appointments ADD COLUMN end_time TEXT NOT NULL DEFAULT '09:30'",
@@ -149,7 +163,13 @@ def init_db(db_path: str | None = None) -> None:
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_appointments_slot
-            ON appointments (appointment_date, start_time, end_time, status)
+            ON appointments (appointment_date, doctor_id, start_time, end_time, status)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_appointments_doctor_slot
+            ON appointments (appointment_date, doctor_id, start_time, end_time, status)
             """
         )
         conn.execute(

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 import pytest
 
+import booking_service
 from app import create_app
 from database import get_connection
 
@@ -25,6 +27,7 @@ def payload(**overrides):
         "patient_name": "Avery Morgan",
         "mobile_number": "9876543210",
         "email": "avery@example.com",
+        "doctor_id": "dr_rao",
         "service_id": "general_consultation",
         "appointment_date": future_date(),
         "start_time": "09:00",
@@ -53,6 +56,15 @@ def test_browser_cannot_override_configured_duration(client):
 
     assert response.status_code == 201
     assert response.get_json()["appointment"]["end_time"] == "11:15"
+
+
+def test_booking_form_does_not_accept_manual_end_time(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'name="start_time"' in html
+    assert 'name="end_time"' not in html
 
 
 def test_unknown_service_is_rejected(client):
@@ -106,6 +118,14 @@ def test_overlapping_appointment_rejection(client):
     assert overlap.status_code == 409
 
 
+def test_same_time_different_doctors_allowed(client):
+    first = book(client, doctor_id="dr_rao", service_id="specialist_consultation", start_time="11:00")
+    second = book(client, patient_name="Jordan Lee", doctor_id="dr_tanaka", service_id="specialist_consultation", start_time="11:00")
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+
 def test_back_to_back_appointments_are_allowed(client):
     first = book(client, service_id="specialist_consultation", start_time="12:00")
     second = book(client, patient_name="Jordan Lee", service_id="general_consultation", start_time="12:30")
@@ -128,6 +148,20 @@ def test_concurrent_conflicting_requests_allow_only_one_booking(tmp_path):
         statuses = list(executor.map(submit, ["One Patient", "Two Patient"]))
 
     assert sorted(statuses) == [201, 409]
+
+
+def test_locked_database_returns_retryable_booking_error(client, monkeypatch):
+    @contextmanager
+    def locked_transaction(*_args, **_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+        yield
+
+    monkeypatch.setattr(booking_service, "transaction", locked_transaction)
+
+    response = book(client, start_time="12:00")
+
+    assert response.status_code == 503
+    assert "retry" in response.get_json()["error"].lower()
 
 
 def test_booking_cancelled_slot_again(client):
@@ -189,7 +223,7 @@ def test_invalid_requests_do_not_create_records(client):
 
 
 def test_availability_returns_duration_aware_slots(client):
-    response = client.get(f"/api/availability?date={future_date()}&service_id=specialist_consultation")
+    response = client.get(f"/api/availability?date={future_date()}&service_id=specialist_consultation&doctor_id=dr_rao")
 
     assert response.status_code == 200
     slots = response.get_json()["slots"]
@@ -206,6 +240,26 @@ def test_services_are_backend_configured(client):
         "specialist_consultation",
         "vaccination",
     }
+
+
+def test_doctors_are_backend_configured(client):
+    response = client.get("/api/doctors")
+
+    assert response.status_code == 200
+    assert {doctor["id"] for doctor in response.get_json()["doctors"]} >= {"dr_rao", "dr_tanaka"}
+
+
+def test_availability_is_doctor_specific(client):
+    appointment_date = future_date()
+    book(client, doctor_id="dr_rao", service_id="specialist_consultation", appointment_date=appointment_date, start_time="09:00")
+
+    rao = client.get(f"/api/availability?date={appointment_date}&service_id=specialist_consultation&doctor_id=dr_rao")
+    tanaka = client.get(f"/api/availability?date={appointment_date}&service_id=specialist_consultation&doctor_id=dr_tanaka")
+
+    assert rao.status_code == 200
+    assert tanaka.status_code == 200
+    assert next(slot for slot in rao.get_json()["slots"] if slot["start_time"] == "09:00")["available"] is False
+    assert next(slot for slot in tanaka.get_json()["slots"] if slot["start_time"] == "09:00")["available"] is True
 
 
 def test_database_summary_reports_sql_storage(client):

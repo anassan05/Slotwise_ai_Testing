@@ -19,7 +19,8 @@ def run_scenarios(scenarios: list[Scenario] | None = None, app_config: dict | No
             db_path = str(Path(temp_dir) / "slotwise_test.db")
             config = {"TESTING": True, "DATABASE": db_path}
             if app_config:
-                config.update(app_config)
+                config.update({key: value for key, value in app_config.items() if key != "DATABASE"})
+            config["DATABASE"] = db_path
             app = create_app(config)
             with app.test_client() as client:
                 results.append(_execute_scenario(client, scenario))
@@ -57,6 +58,7 @@ def _execute_scenario(client, scenario: Scenario) -> dict:
     failed_assertions = []
     semantic_result = None
     execution_steps = []
+    starting_counts = _database_counts(client, scenario.expected_database_changes)
 
     for step in scenario.steps:
         request_path = _format_path(step["path"], context)
@@ -117,6 +119,8 @@ def _execute_scenario(client, scenario: Scenario) -> dict:
         failed_assertions.append(f"Expected HTTP {scenario.expected_status}, got HTTP {actual_status}.")
     if actual_result != scenario.expected_result:
         failed_assertions.append(f"Expected result '{scenario.expected_result}', got '{actual_result}'.")
+    failed_assertions.extend(_evaluate_response_conditions(actual_body, scenario.expected_response_conditions))
+    failed_assertions.extend(_evaluate_database_changes(client, starting_counts, scenario.expected_database_changes))
     if execution_steps:
         execution_steps[-1]["expected_status"] = scenario.expected_status
         execution_steps[-1]["expected_result"] = scenario.expected_result
@@ -144,6 +148,10 @@ def _execute_scenario(client, scenario: Scenario) -> dict:
 
 def _checks_for_scenario(scenario: Scenario) -> str:
     checks = ["HTTP status", "semantic result"]
+    if scenario.expected_response_conditions:
+        checks.append("response fields")
+    if scenario.expected_database_changes:
+        checks.append("database changes")
     if any(step.get("expect_error_contains") for step in scenario.steps):
         checks.append("response error content")
     if any(step.get("assert_contains_saved") for step in scenario.steps):
@@ -157,6 +165,49 @@ def _appointment_count(client) -> int:
     db_path = client.application.config["DATABASE"]
     with get_connection(db_path) as conn:
         return conn.execute("SELECT COUNT(*) FROM appointments").fetchone()[0]
+
+
+def _database_counts(client, changes: list[dict]) -> dict[str, int]:
+    tables = {change["table"] for change in changes}
+    if not tables:
+        return {}
+    db_path = client.application.config["DATABASE"]
+    with get_connection(db_path) as conn:
+        return {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in tables}
+
+
+def _evaluate_database_changes(client, starting_counts: dict[str, int], changes: list[dict]) -> list[str]:
+    failures = []
+    if not changes:
+        return failures
+    current_counts = _database_counts(client, changes)
+    for change in changes:
+        table = change["table"]
+        expected_delta = change["delta"]
+        actual_delta = current_counts[table] - starting_counts[table]
+        if actual_delta != expected_delta:
+            failures.append(f"Expected {table} row delta {expected_delta}, got {actual_delta}.")
+    return failures
+
+
+def _evaluate_response_conditions(body: dict, conditions: list[dict]) -> list[str]:
+    failures = []
+    for condition in conditions:
+        value = _get_path(body, condition["path"])
+        if "equals" in condition and value != condition["equals"]:
+            failures.append(f"Expected response {condition['path']} to equal {condition['equals']!r}, got {value!r}.")
+        if "contains" in condition and condition["contains"].lower() not in str(value or "").lower():
+            failures.append(f"Expected response {condition['path']} to contain {condition['contains']!r}, got {value!r}.")
+    return failures
+
+
+def _get_path(body: dict, path: str):
+    current = body
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+    return current
 
 
 def _safe_input(payload: dict) -> dict:

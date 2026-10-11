@@ -117,8 +117,9 @@ TestPilot persists run summaries in `test_runs` and detailed scenario results in
 ## Architecture Notes
 
 - `database.py` owns SQLite connections, safe initialization and additive migrations.
-- `app.py` exposes the HTML page and JSON APIs for booking, listing, cancellation, stats and TestPilot.
-- Booking writes use `BEGIN IMMEDIATE` transactions and parameterized SQL to avoid duplicate active slots under concurrent requests.
+- `app.py` exposes the HTML pages and JSON APIs for authentication, booking, listing, cancellation, stats and TestPilot.
+- `booking_service.py` is the single source of truth for booking rules: required fields, service duration lookup, clinic hours, start-time interval validation, overlap checks, cancellation, rebooking and availability.
+- Booking writes use `BEGIN IMMEDIATE` transactions and parameterized SQL to avoid duplicate active slots under concurrent requests. SQLite busy/locked write errors are returned as retryable booking errors instead of generic crashes.
 - `clinic_config.py` owns the initial service catalog, service durations, clinic hours, and slot interval.
 - Patient bookings submit patient name, mobile number, optional email, service ID, date, and start time. The backend retrieves the service duration and calculates `end_time`; browser-supplied end times are ignored.
 - `/api/availability` generates duration-aware start slots inside clinic hours and marks slots blocked by active appointments.
@@ -131,3 +132,5 @@ TestPilot persists run summaries in `test_runs` and detailed scenario results in
 Flask serves the dashboard and REST API routes. SQLite stores appointments and TestPilot evidence using parameterized SQL and transactions. Scenario generation turns explicit Python business rules into executable cases; TestPilot then runs those cases against isolated Flask test clients and temporary SQLite files. It is a deterministic rule-based engine, not an LLM-powered service.
 
 The clinic booking form does not ask patients for an end time. It loads services and available start slots from the backend, previews the calculated duration in the browser, and the server independently validates the service, clinic hours, slot interval, and overlap before inserting the appointment.
+
+Current MVP limitation: doctor-specific schedules are not implemented because the schema does not yet include doctors. Conflict checks are clinic-wide. If doctors are added later, add a `doctor_id` column through a safe migration and include it in availability and overlap queries.
